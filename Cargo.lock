@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "cd_env"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ci_env"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
 ]
