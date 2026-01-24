@@ -44,7 +44,7 @@ use std::sync::OnceLock;
 /// Returns true if in a CI environment by checking for the existence of the `CI`
 /// environment variable. It does not validate the variable value.
 pub fn is_ci() -> bool {
-    env::var("CI").is_ok_and(|v| v == "1" || v == "true")
+    env::var("CI").is_ok_and(|v| !v.is_empty()) || !matches!(detect_provider(), CiProvider::Unknown)
 }
 
 static PROVIDER: OnceLock<CiProvider> = OnceLock::new();
@@ -77,9 +77,10 @@ pub fn detect_provider() -> CiProvider {
                 "AGOLA_REPOSITORY_URL" => CiProvider::Agola,
                 "APPCENTER_BUILD_ID" => CiProvider::AppCenter,
                 "APPVEYOR" => CiProvider::AppVeyor,
-                "AZURE_PIPELINES" | "BUILD_BUILDURI" | "SYSTEM_TEAMFOUNDATIONCOLLECTIONURI" => {
-                    CiProvider::Azure
-                }
+                "AZURE_PIPELINES"
+                | "BUILD_BUILDURI"
+                | "SYSTEM_TEAMFOUNDATIONCOLLECTIONURI"
+                | "TF_BUILD" => CiProvider::Azure,
                 "BITBUCKET_WORKSPACE" | "BITBUCKET_COMMIT" => CiProvider::Bitbucket,
                 "BITRISE_IO" => CiProvider::Bitrise,
                 "BUDDY" | "BUDDY_WORKSPACE_ID" => CiProvider::Buddy,
@@ -122,10 +123,6 @@ pub fn detect_provider() -> CiProvider {
 
 /// Returns metadata and information about the current CI environment and CI provider.
 pub fn get_environment() -> Option<CiEnvironment> {
-    if !is_ci() {
-        return None;
-    }
-
     let environment = match detect_provider() {
         CiProvider::Agola => agola::create_environment(),
         CiProvider::AppCenter => appcenter::create_environment(),

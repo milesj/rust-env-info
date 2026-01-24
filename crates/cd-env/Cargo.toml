@@ -10,4 +10,4 @@ keywords = ["cd", "deploy", "env", "info", "provider"]
 categories = ["development-tools"]
 
 [dependencies]
-serde = { version = "1.0.217", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
