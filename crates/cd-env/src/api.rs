@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 
 /// List of supported CD providers.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CdProvider {
     AwsCodedeploy,
     DigitalOceanAppPlatform,
@@ -10,7 +10,6 @@ pub enum CdProvider {
     GoCD,
     GoogleAppEngine,
     GoogleCloudRun,
-    Harness,
     Heroku,
     Netlify,
     Octopus,

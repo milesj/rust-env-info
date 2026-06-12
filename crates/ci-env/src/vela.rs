@@ -15,6 +15,6 @@ pub fn create_environment() -> CiEnvironment {
         request_id: opt_var("VELA_PULL_REQUEST"),
         request_url: None,
         revision: var("VELA_BUILD_COMMIT"),
-        url: None,
+        url: opt_var("VELA_BUILD_LINK"),
     }
 }

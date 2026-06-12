@@ -15,7 +15,11 @@ pub fn create_environment() -> CiEnvironment {
         provider: CiProvider::JenkinsX,
         request_id: opt_var("PULL_NUMBER"),
         request_url: None,
-        revision: var("PULL_PULL_SHA"),
+        // `PULL_PULL_SHA` is only set for pull requests, while `PULL_BASE_SHA`
+        // is the SHA being built on branch/release pipelines
+        revision: opt_var("PULL_PULL_SHA")
+            .or_else(|| opt_var("PULL_BASE_SHA"))
+            .unwrap_or_default(),
         url: opt_var("JENKINS_X_URL"),
     }
 }

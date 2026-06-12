@@ -1,6 +1,9 @@
 use crate::api::{opt_var, var, CiEnvironment, CiProvider};
 
 // https://cloud.google.com/build/docs/configuring-builds/substitute-variable-values
+// Cloud Build only provides these values as substitutions, not environment
+// variables. They are only available here when the build config maps them
+// through `env` or enables `automapSubstitutions`.
 pub fn create_environment() -> CiEnvironment {
     CiEnvironment {
         base_branch: opt_var("_BASE_BRANCH"),

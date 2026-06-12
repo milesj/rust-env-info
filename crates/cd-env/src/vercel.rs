@@ -7,6 +7,6 @@ pub fn create_environment() -> CdEnvironment {
         env_prefix: Some("VERCEL_".into()),
         provider: CdProvider::Vercel,
         revision: var("VERCEL_GIT_COMMIT_SHA"),
-        service_id: None,
+        service_id: opt_var("VERCEL_PROJECT_ID"),
     }
 }

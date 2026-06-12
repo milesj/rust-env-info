@@ -3,7 +3,9 @@ use crate::api::{opt_var, var, CiEnvironment, CiProvider};
 // https://docs.netlify.com/configure-builds/environment-variables/
 pub fn create_environment() -> CiEnvironment {
     CiEnvironment {
-        base_branch: opt_var("BRANCH"),
+        // `BRANCH` is the branch being deployed; Netlify doesn't expose
+        // the target branch of a pull request
+        base_branch: None,
         base_revision: None,
         branch: opt_var("HEAD")
             .or_else(|| opt_var("BRANCH"))

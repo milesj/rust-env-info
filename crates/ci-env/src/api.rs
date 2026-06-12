@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 
 /// List of supported CI providers.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CiProvider {
     Agola,
     AppCenter,

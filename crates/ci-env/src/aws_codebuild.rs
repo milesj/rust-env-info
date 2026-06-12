@@ -25,6 +25,7 @@ pub fn create_environment() -> CiEnvironment {
         },
         request_url: None,
         revision: var("CODEBUILD_RESOLVED_SOURCE_VERSION"),
-        url: opt_var("CODEBUILD_PUBLIC_BUILD_URL"),
+        // `CODEBUILD_PUBLIC_BUILD_URL` is only set for public build projects
+        url: opt_var("CODEBUILD_BUILD_URL").or_else(|| opt_var("CODEBUILD_PUBLIC_BUILD_URL")),
     }
 }
