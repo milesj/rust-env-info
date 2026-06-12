@@ -5,6 +5,8 @@ use std::env;
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CdProvider {
     AwsCodedeploy,
+    Coolify,
+    DenoDeploy,
     DigitalOceanAppPlatform,
     Fly,
     GoCD,

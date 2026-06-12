@@ -1,5 +1,7 @@
 mod api;
 mod aws_codedeploy;
+mod coolify;
+mod deno_deploy;
 mod digital_ocean;
 mod fly;
 mod go_cd;
@@ -39,6 +41,10 @@ pub fn detect_provider() -> CdProvider {
 /// Engine second-generation runtimes also set the Cloud Run `K_*` variables.
 #[rustfmt::skip]
 const PROVIDER_KEYS: &[(&str, CdProvider)] = &[
+    ("COOLIFY_RESOURCE_UUID", CdProvider::Coolify),
+    ("COOLIFY_FQDN", CdProvider::Coolify),
+    ("COOLIFY_URL", CdProvider::Coolify),
+    ("DENO_DEPLOYMENT_ID", CdProvider::DenoDeploy),
     ("DEPLOYMENT_GROUP_NAME", CdProvider::AwsCodedeploy),
     ("FLY_APP_NAME", CdProvider::Fly),
     ("GAE_SERVICE", CdProvider::GoogleAppEngine),
@@ -89,6 +95,8 @@ fn detect_provider_from_vars(vars: &[(String, String)]) -> CdProvider {
 pub fn get_environment() -> Option<CdEnvironment> {
     let environment = match detect_provider() {
         CdProvider::AwsCodedeploy => aws_codedeploy::create_environment(),
+        CdProvider::Coolify => coolify::create_environment(),
+        CdProvider::DenoDeploy => deno_deploy::create_environment(),
         CdProvider::DigitalOceanAppPlatform => digital_ocean::create_environment(),
         CdProvider::Fly => fly::create_environment(),
         CdProvider::GoCD => go_cd::create_environment(),
@@ -133,6 +141,26 @@ mod tests {
         let env = vars(&[("K_SERVICE", "default"), ("GAE_SERVICE", "default")]);
 
         assert_eq!(detect_provider_from_vars(&env), CdProvider::GoogleAppEngine);
+    }
+
+    #[test]
+    fn detects_coolify() {
+        let env = vars(&[
+            ("COOLIFY_RESOURCE_UUID", "abc123"),
+            ("COOLIFY_FQDN", "app.example.com"),
+        ]);
+
+        assert_eq!(detect_provider_from_vars(&env), CdProvider::Coolify);
+    }
+
+    #[test]
+    fn detects_deno_deploy() {
+        let env = vars(&[
+            ("DENO_DEPLOYMENT_ID", "dpl_abc123"),
+            ("DENO_REGION", "gcp-us-east4"),
+        ]);
+
+        assert_eq!(detect_provider_from_vars(&env), CdProvider::DenoDeploy);
     }
 
     #[test]

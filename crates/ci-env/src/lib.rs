@@ -3,6 +3,7 @@ mod api;
 mod appcenter;
 mod appcircle;
 mod appveyor;
+mod aws_amplify;
 mod aws_codebuild;
 mod azure;
 mod bamboo;
@@ -12,11 +13,14 @@ mod buddy;
 mod buildkite;
 mod circleci;
 mod cirrus;
+mod cloudflare_pages;
 mod codefresh;
 mod codemagic;
 mod codeship;
 mod drone;
 mod eas;
+mod forgejo;
+mod gitea;
 mod github;
 mod gitlab;
 mod google_cloud_build;
@@ -29,6 +33,7 @@ mod netlify;
 mod screwdriver;
 mod scrutinizer;
 mod semaphore;
+mod sourcehut;
 mod teamcity;
 mod travisci;
 mod vela;
@@ -64,10 +69,12 @@ pub fn detect_provider() -> CiProvider {
 }
 
 /// Keys are checked in order, so providers that also expose another provider's
-/// variables must come before it: `HARNESS_BUILD_ID` before `DRONE` (Harness CI
-/// sets `DRONE_*` compatibility variables), `JENKINS_X_URL` before `JENKINS_URL`,
-/// and the generic `BUILD_ID` (Jenkins without a configured root URL) dead last,
-/// since Jenkins X, Netlify, and Google Cloud Build can also set it.
+/// variables must come before it: `GITEA_ACTIONS`/`FORGEJO_ACTIONS` before
+/// `GITHUB_ACTIONS` (both forges set the `GITHUB_*` compatibility variables),
+/// `HARNESS_BUILD_ID` before `DRONE` (Harness CI sets `DRONE_*` compatibility
+/// variables), `JENKINS_X_URL` before `JENKINS_URL`, and the generic `BUILD_ID`
+/// (Jenkins without a configured root URL) dead last, since Jenkins X, Netlify,
+/// and Google Cloud Build can also set it.
 #[rustfmt::skip]
 const PROVIDER_KEYS: &[(&str, CiProvider)] = &[
     ("AC_APPCIRCLE", CiProvider::Appcircle),
@@ -84,6 +91,7 @@ const PROVIDER_KEYS: &[(&str, CiProvider)] = &[
     ("BUILDKITE", CiProvider::Buildkite),
     ("CF_ACCOUNT", CiProvider::Codefresh),
     ("CF_BUILD_ID", CiProvider::Codefresh),
+    ("CF_PAGES", CiProvider::CloudflarePages),
     ("CIRCLECI", CiProvider::CircleCI),
     ("CIRRUS_CI", CiProvider::Cirrus),
     ("CI_XCODE_CLOUD", CiProvider::XcodeCloud),
@@ -91,6 +99,8 @@ const PROVIDER_KEYS: &[(&str, CiProvider)] = &[
     ("CM_BUILD_ID", CiProvider::Codemagic),
     ("CODEBUILD_BUILD_ARN", CiProvider::AwsCodebuild),
     ("EAS_BUILD", CiProvider::Eas),
+    ("FORGEJO_ACTIONS", CiProvider::ForgejoActions),
+    ("GITEA_ACTIONS", CiProvider::GiteaActions),
     ("GITHUB_ACTIONS", CiProvider::GithubActions),
     ("GITLAB_CI", CiProvider::Gitlab),
     ("HARNESS_BUILD_ID", CiProvider::Harness),
@@ -129,14 +139,22 @@ fn detect_provider_from_vars(vars: &[(String, String)]) -> CiProvider {
         return CiProvider::Woodpecker;
     }
 
-    if get("CI_NAME") == Some("codeship") {
-        return CiProvider::Codeship;
+    match get("CI_NAME") {
+        Some("codeship") => return CiProvider::Codeship,
+        Some("sourcehut") => return CiProvider::Sourcehut,
+        _ => {}
     }
 
     for (key, provider) in PROVIDER_KEYS {
         if get(key).is_some() {
             return *provider;
         }
+    }
+
+    // Amplify reserves the `AWS_` prefix but shares it with the AWS CLI
+    // and SDKs, so require two of its variables to avoid false positives
+    if get("AWS_APP_ID").is_some() && get("AWS_JOB_ID").is_some() {
+        return CiProvider::AwsAmplify;
     }
 
     CiProvider::Unknown
@@ -149,6 +167,7 @@ pub fn get_environment() -> Option<CiEnvironment> {
         CiProvider::AppCenter => appcenter::create_environment(),
         CiProvider::Appcircle => appcircle::create_environment(),
         CiProvider::AppVeyor => appveyor::create_environment(),
+        CiProvider::AwsAmplify => aws_amplify::create_environment(),
         CiProvider::AwsCodebuild => aws_codebuild::create_environment(),
         CiProvider::Azure => azure::create_environment(),
         CiProvider::Bamboo => bamboo::create_environment(),
@@ -158,11 +177,14 @@ pub fn get_environment() -> Option<CiEnvironment> {
         CiProvider::Buildkite => buildkite::create_environment(),
         CiProvider::CircleCI => circleci::create_environment(),
         CiProvider::Cirrus => cirrus::create_environment(),
+        CiProvider::CloudflarePages => cloudflare_pages::create_environment(),
         CiProvider::Codefresh => codefresh::create_environment(),
         CiProvider::Codemagic => codemagic::create_environment(),
         CiProvider::Codeship => codeship::create_environment(),
         CiProvider::Drone => drone::create_environment(),
         CiProvider::Eas => eas::create_environment(),
+        CiProvider::ForgejoActions => forgejo::create_environment(),
+        CiProvider::GiteaActions => gitea::create_environment(),
         CiProvider::GithubActions => github::create_environment(),
         CiProvider::Gitlab => gitlab::create_environment(),
         CiProvider::GoogleCloudBuild => google_cloud_build::create_environment(),
@@ -175,6 +197,7 @@ pub fn get_environment() -> Option<CiEnvironment> {
         CiProvider::Screwdriver => screwdriver::create_environment(),
         CiProvider::Scrutinizer => scrutinizer::create_environment(),
         CiProvider::Semaphore => semaphore::create_environment(),
+        CiProvider::Sourcehut => sourcehut::create_environment(),
         CiProvider::TeamCity => teamcity::create_environment(),
         CiProvider::TravisCI => travisci::create_environment(),
         CiProvider::Vela => vela::create_environment(),
@@ -269,6 +292,49 @@ mod tests {
         let env = vars(&[("CI", "true"), ("CI_NAME", "codeship")]);
 
         assert_eq!(detect_provider_from_vars(&env), CiProvider::Codeship);
+    }
+
+    #[test]
+    fn gitea_with_github_compat_vars_is_gitea() {
+        // Gitea/Forgejo Actions also set `GITHUB_ACTIONS=true` for
+        // compatibility, and must win over GitHub Actions
+        let env = vars(&[
+            ("CI", "true"),
+            ("GITEA_ACTIONS", "true"),
+            ("GITHUB_ACTIONS", "true"),
+        ]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::GiteaActions);
+
+        let env = vars(&[("FORGEJO_ACTIONS", "true"), ("GITHUB_ACTIONS", "true")]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::ForgejoActions);
+    }
+
+    #[test]
+    fn detects_cloudflare_pages() {
+        let env = vars(&[("CI", "true"), ("CF_PAGES", "1")]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::CloudflarePages);
+    }
+
+    #[test]
+    fn amplify_requires_both_variables() {
+        let env = vars(&[("AWS_APP_ID", "abcd1234"), ("AWS_JOB_ID", "0000000001")]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::AwsAmplify);
+
+        // A lone `AWS_*` variable isn't enough to assume Amplify
+        let env = vars(&[("AWS_APP_ID", "abcd1234")]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::Unknown);
+    }
+
+    #[test]
+    fn sourcehut_detected_via_ci_name() {
+        let env = vars(&[("CI_NAME", "sourcehut"), ("JOB_ID", "123")]);
+
+        assert_eq!(detect_provider_from_vars(&env), CiProvider::Sourcehut);
     }
 
     #[test]
