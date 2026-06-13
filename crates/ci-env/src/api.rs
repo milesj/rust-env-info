@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
-use std::env;
+use std::{env, fmt};
 
 /// List of supported CI providers.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum CiProvider {
     Agola,
     AppCenter,
     Appcircle,
+    #[serde(rename = "appveyor")]
     AppVeyor,
     AwsAmplify,
     AwsCodebuild,
@@ -16,6 +18,7 @@ pub enum CiProvider {
     Bitrise,
     Buddy,
     Buildkite,
+    #[serde(rename = "circleci")]
     CircleCI,
     Cirrus,
     CloudflarePages,
@@ -39,7 +42,9 @@ pub enum CiProvider {
     Scrutinizer,
     Semaphore,
     Sourcehut,
+    #[serde(rename = "teamcity")]
     TeamCity,
+    #[serde(rename = "travis-ci")]
     TravisCI,
     Vela,
     Vercel,
@@ -48,6 +53,58 @@ pub enum CiProvider {
     XcodeServer,
     #[default]
     Unknown,
+}
+
+impl fmt::Display for CiProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let id = match self {
+            CiProvider::Agola => "agola",
+            CiProvider::AppCenter => "app-center",
+            CiProvider::Appcircle => "appcircle",
+            CiProvider::AppVeyor => "appveyor",
+            CiProvider::AwsAmplify => "aws-amplify",
+            CiProvider::AwsCodebuild => "aws-codebuild",
+            CiProvider::Azure => "azure",
+            CiProvider::Bamboo => "bamboo",
+            CiProvider::Bitbucket => "bitbucket",
+            CiProvider::Bitrise => "bitrise",
+            CiProvider::Buddy => "buddy",
+            CiProvider::Buildkite => "buildkite",
+            CiProvider::CircleCI => "circleci",
+            CiProvider::Cirrus => "cirrus",
+            CiProvider::CloudflarePages => "cloudflare-pages",
+            CiProvider::Codefresh => "codefresh",
+            CiProvider::Codemagic => "codemagic",
+            CiProvider::Codeship => "codeship",
+            CiProvider::Drone => "drone",
+            CiProvider::Eas => "eas",
+            CiProvider::ForgejoActions => "forgejo-actions",
+            CiProvider::GiteaActions => "gitea-actions",
+            CiProvider::GithubActions => "github-actions",
+            CiProvider::Gitlab => "gitlab",
+            CiProvider::GoogleCloudBuild => "google-cloud-build",
+            CiProvider::Harness => "harness",
+            CiProvider::Heroku => "heroku",
+            CiProvider::Jenkins => "jenkins",
+            CiProvider::JenkinsX => "jenkins-x",
+            CiProvider::JetbrainsSpace => "jetbrains-space",
+            CiProvider::Netlify => "netlify",
+            CiProvider::Screwdriver => "screwdriver",
+            CiProvider::Scrutinizer => "scrutinizer",
+            CiProvider::Semaphore => "semaphore",
+            CiProvider::Sourcehut => "sourcehut",
+            CiProvider::TeamCity => "teamcity",
+            CiProvider::TravisCI => "travis-ci",
+            CiProvider::Vela => "vela",
+            CiProvider::Vercel => "vercel",
+            CiProvider::Woodpecker => "woodpecker",
+            CiProvider::XcodeCloud => "xcode-cloud",
+            CiProvider::XcodeServer => "xcode-server",
+            CiProvider::Unknown => "unknown",
+        };
+
+        f.write_str(id)
+    }
 }
 
 pub struct CiOutput {
@@ -108,5 +165,42 @@ pub fn opt_var(key: &str) -> Option<String> {
             }
         }
         Err(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::de::value::{Error as DeError, StrDeserializer};
+    use serde::de::IntoDeserializer;
+
+    fn from_id(id: &str) -> Result<CiProvider, DeError> {
+        let de: StrDeserializer<DeError> = id.into_deserializer();
+        CiProvider::deserialize(de)
+    }
+
+    #[test]
+    fn display_uses_kebab_case_ids() {
+        assert_eq!(CiProvider::GithubActions.to_string(), "github-actions");
+        assert_eq!(CiProvider::AwsCodebuild.to_string(), "aws-codebuild");
+        assert_eq!(CiProvider::CircleCI.to_string(), "circleci");
+        assert_eq!(CiProvider::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn serde_round_trips_display_ids() {
+        // The serde wire format must match `Display` exactly, including the
+        // hand-tuned overrides where serde's mechanical kebab-case differs.
+        for provider in [
+            CiProvider::AppVeyor,
+            CiProvider::CircleCI,
+            CiProvider::GithubActions,
+            CiProvider::TeamCity,
+            CiProvider::TravisCI,
+            CiProvider::Unknown,
+        ] {
+            let id = provider.to_string();
+            assert_eq!(from_id(&id).unwrap(), provider, "id {id:?}");
+        }
     }
 }
