@@ -1,0 +1,13 @@
+[package]
+name = "ai_env"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "Detect AI coding agent information from the environment."
+homepage = "https://github.com/milesj/rust-cicd-env"
+repository = "https://github.com/milesj/rust-cicd-env"
+keywords = ["ai", "agent", "env", "info"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
