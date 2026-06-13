@@ -1,13 +1,17 @@
+mod antigravity;
 mod api;
 mod augment;
 mod claude;
+mod claude_cowork;
 mod codex;
 mod cursor;
 mod cursor_cli;
 mod devin;
 mod gemini;
+mod github_copilot;
 mod opencode;
 mod replit;
+mod v0;
 
 pub use api::{AiAgent, AiEnvironment};
 
@@ -37,22 +41,13 @@ pub fn detect_agent() -> AiAgent {
 }
 
 /// Detection markers in priority order, mirroring `@vercel/detect-agent`.
-/// Cursor's editor terminal (`CURSOR_TRACE_ID`) ranks above the CLI markers,
-/// matching that convention.
-#[rustfmt::skip]
-const AGENT_KEYS: &[(&str, AiAgent)] = &[
-    ("CURSOR_TRACE_ID", AiAgent::Cursor),
-    ("CURSOR_AGENT", AiAgent::CursorCli),
-    ("GEMINI_CLI", AiAgent::Gemini),
-    ("CODEX_SANDBOX", AiAgent::Codex),
-    ("AUGMENT_AGENT", AiAgent::Augment),
-    ("OPENCODE_CLIENT", AiAgent::OpenCode),
-    ("OPENCODE", AiAgent::OpenCode),
-    ("CLAUDECODE", AiAgent::Claude),
-    ("CLAUDE_CODE", AiAgent::Claude),
-    ("REPL_ID", AiAgent::Replit),
-];
-
+///
+/// Unlike the `ci_env`/`cd_env` crates, detection isn't a flat key table:
+/// several agents need value checks (`CURSOR_EXTENSION_HOST_ROLE`), multiple
+/// alternative markers (Codex, Copilot), or a sub-mode gate (Claude vs its
+/// Cowork mode), so the checks are spelled out explicitly. Markers are checked
+/// before the `AI_AGENT` self-id so the Cowork sub-mode is detected even when
+/// `AI_AGENT` is also set to the generic Claude Code string.
 fn detect_agent_from_vars(vars: &[(String, String)]) -> AiAgent {
     let get = |key: &str| {
         vars.iter()
@@ -60,15 +55,59 @@ fn detect_agent_from_vars(vars: &[(String, String)]) -> AiAgent {
             .map(|(_, v)| v.as_str())
             .filter(|v| !v.is_empty())
     };
+    let any = |keys: &[&str]| keys.iter().any(|key| get(key).is_some());
 
-    for (key, agent) in AGENT_KEYS {
-        if get(key).is_some() {
-            return *agent;
-        }
+    // Cursor editor integrated terminal
+    if get("CURSOR_TRACE_ID").is_some() {
+        return AiAgent::Cursor;
+    }
+
+    // Cursor CLI agent (env marker or the agent-exec extension host role)
+    if get("CURSOR_AGENT").is_some() || get("CURSOR_EXTENSION_HOST_ROLE") == Some("agent-exec") {
+        return AiAgent::CursorCli;
+    }
+
+    if get("GEMINI_CLI").is_some() {
+        return AiAgent::Gemini;
+    }
+
+    // Codex — sandboxed exec, CI, or an interactive thread
+    if any(&["CODEX_SANDBOX", "CODEX_CI", "CODEX_THREAD_ID"]) {
+        return AiAgent::Codex;
+    }
+
+    if get("ANTIGRAVITY_AGENT").is_some() {
+        return AiAgent::Antigravity;
+    }
+
+    if get("AUGMENT_AGENT").is_some() {
+        return AiAgent::Augment;
+    }
+
+    if any(&["OPENCODE_CLIENT", "OPENCODE"]) {
+        return AiAgent::OpenCode;
+    }
+
+    // Claude Code, or its Cowork sub-mode
+    if any(&["CLAUDECODE", "CLAUDE_CODE"]) {
+        return if get("CLAUDE_CODE_IS_COWORK").is_some() {
+            AiAgent::ClaudeCowork
+        } else {
+            AiAgent::Claude
+        };
+    }
+
+    if get("REPL_ID").is_some() {
+        return AiAgent::Replit;
+    }
+
+    // GitHub Copilot CLI
+    if any(&["COPILOT_MODEL", "COPILOT_ALLOW_ALL", "COPILOT_GITHUB_TOKEN"]) {
+        return AiAgent::GithubCopilot;
     }
 
     // Fall back to the `AI_AGENT` self-identification string. Agents that only
-    // self-identify (no boolean marker) are classified by their name prefix.
+    // self-identify (no boolean marker, e.g. v0) are classified by name.
     if let Some(value) = get("AI_AGENT") {
         let agent = classify_self_id(value);
 
@@ -84,19 +123,28 @@ fn detect_agent_from_vars(vars: &[(String, String)]) -> AiAgent {
     AiAgent::Unknown
 }
 
-/// Maps an `AI_AGENT` self-identification string to a known agent by its name
-/// prefix (e.g. `claude-code_2-1-170_agent` -> `Claude`).
+/// Maps an `AI_AGENT` self-identification string to a known agent. A few names
+/// are matched exactly (`v0`, `github-copilot`); the rest by name prefix
+/// (e.g. `claude-code_2-1-170_agent` -> `Claude`).
 fn classify_self_id(value: &str) -> AiAgent {
     let name = value.trim().to_ascii_lowercase();
 
-    if name.starts_with("claude") {
+    if name == "v0" {
+        AiAgent::V0
+    } else if name == "github-copilot" || name == "github-copilot-cli" {
+        AiAgent::GithubCopilot
+    } else if name.starts_with("claude") {
         AiAgent::Claude
+    } else if name.starts_with("cowork") {
+        AiAgent::ClaudeCowork
     } else if name.starts_with("codex") {
         AiAgent::Codex
     } else if name.starts_with("cursor") {
         AiAgent::Cursor
     } else if name.starts_with("gemini") {
         AiAgent::Gemini
+    } else if name.starts_with("antigravity") {
+        AiAgent::Antigravity
     } else if name.starts_with("augment") {
         AiAgent::Augment
     } else if name.starts_with("opencode") {
@@ -114,15 +162,19 @@ fn classify_self_id(value: &str) -> AiAgent {
 /// agent is detected.
 pub fn get_environment() -> Option<AiEnvironment> {
     let environment = match detect_agent() {
+        AiAgent::Antigravity => antigravity::create_environment(),
         AiAgent::Augment => augment::create_environment(),
         AiAgent::Claude => claude::create_environment(),
+        AiAgent::ClaudeCowork => claude_cowork::create_environment(),
         AiAgent::Codex => codex::create_environment(),
         AiAgent::Cursor => cursor::create_environment(),
         AiAgent::CursorCli => cursor_cli::create_environment(),
         AiAgent::Devin => devin::create_environment(),
         AiAgent::Gemini => gemini::create_environment(),
+        AiAgent::GithubCopilot => github_copilot::create_environment(),
         AiAgent::OpenCode => opencode::create_environment(),
         AiAgent::Replit => replit::create_environment(),
+        AiAgent::V0 => v0::create_environment(),
         AiAgent::Unknown => {
             // No typed agent matched. If something still self-identified via
             // `AI_AGENT`, surface it generically; otherwise no agent is present.
@@ -162,10 +214,23 @@ mod tests {
     }
 
     #[test]
-    fn detects_codex_sandbox() {
-        let env = vars(&[("CODEX_SANDBOX", "seatbelt")]);
+    fn cowork_mode_distinguished_from_claude() {
+        let env = vars(&[("CLAUDECODE", "1"), ("CLAUDE_CODE_IS_COWORK", "1")]);
 
-        assert_eq!(detect_agent_from_vars(&env), AiAgent::Codex);
+        assert_eq!(detect_agent_from_vars(&env), AiAgent::ClaudeCowork);
+    }
+
+    #[test]
+    fn detects_codex_via_sandbox_or_thread() {
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("CODEX_SANDBOX", "seatbelt")])),
+            AiAgent::Codex
+        );
+        // CODEX_THREAD_ID marks Codex even outside a sandbox
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("CODEX_THREAD_ID", "th_123")])),
+            AiAgent::Codex
+        );
     }
 
     #[test]
@@ -181,10 +246,42 @@ mod tests {
     }
 
     #[test]
+    fn cursor_cli_via_extension_host_role() {
+        // Only the `agent-exec` role counts, not the editor's other roles
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("CURSOR_EXTENSION_HOST_ROLE", "agent-exec")])),
+            AiAgent::CursorCli
+        );
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("CURSOR_EXTENSION_HOST_ROLE", "extension")])),
+            AiAgent::Unknown
+        );
+    }
+
+    #[test]
     fn detects_gemini() {
         let env = vars(&[("GEMINI_CLI", "1")]);
 
         assert_eq!(detect_agent_from_vars(&env), AiAgent::Gemini);
+    }
+
+    #[test]
+    fn detects_antigravity() {
+        let env = vars(&[("ANTIGRAVITY_AGENT", "1")]);
+
+        assert_eq!(detect_agent_from_vars(&env), AiAgent::Antigravity);
+    }
+
+    #[test]
+    fn detects_github_copilot() {
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("COPILOT_MODEL", "gpt-5")])),
+            AiAgent::GithubCopilot
+        );
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("COPILOT_GITHUB_TOKEN", "x")])),
+            AiAgent::GithubCopilot
+        );
     }
 
     #[test]
@@ -201,9 +298,15 @@ mod tests {
 
     #[test]
     fn classifies_self_id_when_no_marker() {
-        let env = vars(&[("AI_AGENT", "claude-code_2-1-170_agent")]);
-
-        assert_eq!(detect_agent_from_vars(&env), AiAgent::Claude);
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("AI_AGENT", "claude-code_2-1-170_agent")])),
+            AiAgent::Claude
+        );
+        // v0 only ever identifies through AI_AGENT
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[("AI_AGENT", "v0")])),
+            AiAgent::V0
+        );
     }
 
     #[test]

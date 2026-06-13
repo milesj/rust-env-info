@@ -4,15 +4,19 @@ use std::env;
 /// List of detectable AI coding agents.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AiAgent {
+    Antigravity,
     Augment,
     Claude,
+    ClaudeCowork,
     Codex,
     Cursor,
     CursorCli,
     Devin,
     Gemini,
+    GithubCopilot,
     OpenCode,
     Replit,
+    V0,
     #[default]
     Unknown,
 }
