@@ -4,21 +4,21 @@ version = 4
 
 [[package]]
 name = "ai_env"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "cd_env"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ci_env"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "serde",
 ]
