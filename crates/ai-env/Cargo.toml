@@ -4,8 +4,8 @@ version = "0.0.1"
 edition = "2021"
 license = "MIT"
 description = "Detect AI coding agent information from the environment."
-homepage = "https://github.com/milesj/rust-cicd-env"
-repository = "https://github.com/milesj/rust-cicd-env"
+homepage = "https://github.com/milesj/rust-env-info"
+repository = "https://github.com/milesj/rust-env-info"
 keywords = ["ai", "agent", "env", "info"]
 categories = ["development-tools"]
 

@@ -4,8 +4,8 @@ version = "0.3.1"
 edition = "2021"
 license = "MIT"
 description = "Detect CD (deploy, deliver, distribute) information from the environment."
-homepage = "https://github.com/milesj/rust-cicd-env"
-repository = "https://github.com/milesj/rust-cicd-env"
+homepage = "https://github.com/milesj/rust-env-info"
+repository = "https://github.com/milesj/rust-env-info"
 keywords = ["cd", "deploy", "env", "info", "provider"]
 categories = ["development-tools"]
 
