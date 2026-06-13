@@ -1,12 +1,12 @@
 [package]
-name = "cd_env"
-version = "0.3.1"
+name = "ai_env"
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
-description = "Detect CD (deploy, deliver, distribute) information from the environment."
+description = "Detect AI coding agent information from the environment."
 homepage = "https://github.com/milesj/rust-env-info"
 repository = "https://github.com/milesj/rust-env-info"
-keywords = ["cd", "deploy", "env", "info", "provider"]
+keywords = ["ai", "agent", "env", "info"]
 categories = ["development-tools"]
 
 [dependencies]

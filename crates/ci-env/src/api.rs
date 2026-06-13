@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::env;
 
 /// List of supported CI providers.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CiProvider {
     Agola,
     AppCenter,
     Appcircle,
     AppVeyor,
+    AwsAmplify,
     AwsCodebuild,
     Azure,
     Bamboo,
@@ -17,11 +18,14 @@ pub enum CiProvider {
     Buildkite,
     CircleCI,
     Cirrus,
+    CloudflarePages,
     Codefresh,
     Codemagic,
     Codeship,
     Drone,
     Eas,
+    ForgejoActions,
+    GiteaActions,
     GithubActions,
     Gitlab,
     GoogleCloudBuild,
@@ -34,6 +38,7 @@ pub enum CiProvider {
     Screwdriver,
     Scrutinizer,
     Semaphore,
+    Sourcehut,
     TeamCity,
     TravisCI,
     Vela,

@@ -10,7 +10,8 @@ pub fn create_environment() -> CiEnvironment {
         head_revision: None,
         id: var("CM_BUILD_ID"),
         provider: CiProvider::Codemagic,
-        request_id: opt_var("CM_PULL_REQUEST_NUMBER").or_else(|| opt_var("CM_PULL_REQUEST")),
+        // `CM_PULL_REQUEST` is a true/false flag, not a number
+        request_id: opt_var("CM_PULL_REQUEST_NUMBER"),
         request_url: None,
         revision: var("CM_COMMIT"),
         url: None,

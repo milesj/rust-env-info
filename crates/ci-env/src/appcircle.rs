@@ -3,7 +3,7 @@ use crate::api::{opt_var, var, CiEnvironment, CiProvider};
 // https://docs.appcircle.io/environment-variables/appcircle-specific-environment-variables/
 pub fn create_environment() -> CiEnvironment {
     CiEnvironment {
-        base_branch: opt_var("AC_GIT_TARGET_BRANCH").or_else(|| opt_var("AC_GIT_BRANCH")),
+        base_branch: opt_var("AC_GIT_TARGET_BRANCH"),
         base_revision: None,
         branch: var("AC_GIT_BRANCH"),
         env_prefix: Some("AC_".into()),

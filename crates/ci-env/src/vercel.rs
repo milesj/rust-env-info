@@ -8,7 +8,7 @@ pub fn create_environment() -> CiEnvironment {
         branch: var("VERCEL_GIT_COMMIT_REF"),
         env_prefix: Some("VERCEL_".into()),
         head_revision: None,
-        id: var("VERCEL_BUILD_NUMBER"), // not real
+        id: var("VERCEL_DEPLOYMENT_ID"),
         provider: CiProvider::Vercel,
         request_id: opt_var("VERCEL_GIT_PULL_REQUEST_ID"),
         request_url: None,
