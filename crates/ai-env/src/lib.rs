@@ -102,7 +102,12 @@ fn detect_agent_from_vars(vars: &[(String, String)]) -> AiAgent {
     }
 
     // GitHub Copilot CLI
-    if any(&["COPILOT_MODEL", "COPILOT_ALLOW_ALL", "COPILOT_GITHUB_TOKEN"]) {
+    if any(&[
+        "COPILOT_CLI",
+        "COPILOT_MODEL",
+        "COPILOT_ALLOW_ALL",
+        "COPILOT_GITHUB_TOKEN",
+    ]) {
         return AiAgent::GithubCopilot;
     }
 
