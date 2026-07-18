@@ -1,6 +1,6 @@
 [package]
 name = "ci_env"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "MIT"
 description = "Detect CI information from the environment."

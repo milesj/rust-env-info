@@ -1,6 +1,6 @@
 [package]
 name = "cd_env"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT"
 description = "Detect CD (deploy, deliver, distribute) information from the environment."
