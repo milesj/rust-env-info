@@ -43,6 +43,7 @@ mod xcode_cloud;
 mod xcode_server;
 
 pub use api::{CiEnvironment, CiOutput, CiProvider};
+use std::collections::HashMap;
 use std::env;
 use std::sync::OnceLock;
 
@@ -62,7 +63,7 @@ static PROVIDER: OnceLock<CiProvider> = OnceLock::new();
 /// specific to each provider. Returns `Unknown` if no provider is detected.
 pub fn detect_provider() -> CiProvider {
     *PROVIDER.get_or_init(|| {
-        let vars = env::vars().collect::<Vec<_>>();
+        let vars = env::vars().collect::<HashMap<_, _>>();
 
         detect_provider_from_vars(&vars)
     })
@@ -127,13 +128,8 @@ const PROVIDER_KEYS: &[(&str, CiProvider)] = &[
     ("BUILD_ID", CiProvider::Jenkins),
 ];
 
-fn detect_provider_from_vars(vars: &[(String, String)]) -> CiProvider {
-    let get = |key: &str| {
-        vars.iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-            .filter(|v| !v.is_empty())
-    };
+fn detect_provider_from_vars(vars: &HashMap<String, String>) -> CiProvider {
+    let get = |key: &str| vars.get(key).map(|v| v.as_str()).filter(|v| !v.is_empty());
 
     if get("CI") == Some("woodpecker") {
         return CiProvider::Woodpecker;
@@ -229,7 +225,7 @@ pub fn get_output() -> Option<CiOutput> {
 mod tests {
     use super::*;
 
-    fn vars(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    fn vars(list: &[(&str, &str)]) -> HashMap<String, String> {
         list.iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()

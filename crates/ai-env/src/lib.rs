@@ -15,6 +15,7 @@ mod v0;
 
 pub use api::{AiAgent, AiEnvironment, AiNetworkPolicy};
 
+use std::collections::HashMap;
 use std::env;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -35,7 +36,7 @@ static AGENT: OnceLock<AiAgent> = OnceLock::new();
 /// to detect that case.
 pub fn detect_agent() -> AiAgent {
     *AGENT.get_or_init(|| {
-        let vars = env::vars().collect::<Vec<_>>();
+        let vars = env::vars().collect::<HashMap<_, _>>();
 
         detect_agent_from_vars(&vars)
     })
@@ -49,13 +50,8 @@ pub fn detect_agent() -> AiAgent {
 /// Cowork mode), so the checks are spelled out explicitly. Markers are checked
 /// before the `AI_AGENT` self-id so the Cowork sub-mode is detected even when
 /// `AI_AGENT` is also set to the generic Claude Code string.
-fn detect_agent_from_vars(vars: &[(String, String)]) -> AiAgent {
-    let get = |key: &str| {
-        vars.iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-            .filter(|v| !v.is_empty())
-    };
+fn detect_agent_from_vars(vars: &HashMap<String, String>) -> AiAgent {
+    let get = |key: &str| vars.get(key).map(|v| v.as_str()).filter(|v| !v.is_empty());
     let any = |keys: &[&str]| keys.iter().any(|key| get(key).is_some());
 
     // Cursor editor integrated terminal
@@ -187,19 +183,17 @@ static NETWORK_POLICY: OnceLock<AiNetworkPolicy> = OnceLock::new();
 /// before acting on this signal.
 pub fn detect_network_policy(agent: AiAgent) -> AiNetworkPolicy {
     *NETWORK_POLICY.get_or_init(|| {
-        let vars = env::vars().collect::<Vec<_>>();
+        let vars = env::vars().collect::<HashMap<_, _>>();
 
         detect_network_policy_from_vars(agent, &vars)
     })
 }
 
-fn detect_network_policy_from_vars(agent: AiAgent, vars: &[(String, String)]) -> AiNetworkPolicy {
-    let get = |key: &str| {
-        vars.iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-            .filter(|v| !v.is_empty())
-    };
+fn detect_network_policy_from_vars(
+    agent: AiAgent,
+    vars: &HashMap<String, String>,
+) -> AiNetworkPolicy {
+    let get = |key: &str| vars.get(key).map(|v| v.as_str()).filter(|v| !v.is_empty());
 
     match agent {
         // Codex sandboxed commands with network access turned off
@@ -339,7 +333,7 @@ pub fn get_environment() -> Option<AiEnvironment> {
 mod tests {
     use super::*;
 
-    fn vars(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    fn vars(list: &[(&str, &str)]) -> HashMap<String, String> {
         list.iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()

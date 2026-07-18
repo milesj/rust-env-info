@@ -17,6 +17,7 @@ mod seed;
 mod vercel;
 
 pub use api::*;
+use std::collections::HashMap;
 use std::env;
 use std::sync::OnceLock;
 
@@ -30,7 +31,7 @@ static PROVIDER: OnceLock<CdProvider> = OnceLock::new();
 /// Detects the CD provider by checking for the existence of environment variables specific to each provider. Returns `Unknown` if no provider is detected.
 pub fn detect_provider() -> CdProvider {
     *PROVIDER.get_or_init(|| {
-        let vars = env::vars().collect::<Vec<_>>();
+        let vars = env::vars().collect::<HashMap<_, _>>();
 
         detect_provider_from_vars(&vars)
     })
@@ -67,13 +68,8 @@ const PROVIDER_KEYS: &[(&str, CdProvider)] = &[
     ("VERCEL", CdProvider::Vercel),
 ];
 
-fn detect_provider_from_vars(vars: &[(String, String)]) -> CdProvider {
-    let get = |key: &str| {
-        vars.iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
-            .filter(|v| !v.is_empty())
-    };
+fn detect_provider_from_vars(vars: &HashMap<String, String>) -> CdProvider {
+    let get = |key: &str| vars.get(key).map(|v| v.as_str()).filter(|v| !v.is_empty());
 
     for (key, provider) in PROVIDER_KEYS {
         if get(key).is_some() {
@@ -122,7 +118,7 @@ pub fn get_environment() -> Option<CdEnvironment> {
 mod tests {
     use super::*;
 
-    fn vars(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    fn vars(list: &[(&str, &str)]) -> HashMap<String, String> {
         list.iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()
