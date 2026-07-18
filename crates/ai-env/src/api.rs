@@ -46,6 +46,46 @@ impl fmt::Display for AiAgent {
     }
 }
 
+/// Network/egress policy imposed on the process, as reported by the
+/// environment.
+///
+/// Derived from environment variables only — no network I/O is performed.
+/// Treat it as a hint for messaging and defaults rather than ground truth:
+/// agents rename their variables over time, and a [`Filtered`][Self::Filtered]
+/// network may still allow the specific hosts a program needs, so verify
+/// reachability of those hosts before acting on this signal.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AiNetworkPolicy {
+    /// No signal either way.
+    #[default]
+    Unknown,
+
+    /// Egress is explicitly unrestricted, e.g. an agent firewall that reports
+    /// itself as disabled.
+    Open,
+
+    /// Egress is restricted to an allowlist, by an agent firewall or a local
+    /// filtering proxy.
+    Filtered,
+
+    /// Network access is disabled entirely.
+    Disabled,
+}
+
+impl fmt::Display for AiNetworkPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let id = match self {
+            AiNetworkPolicy::Unknown => "unknown",
+            AiNetworkPolicy::Open => "open",
+            AiNetworkPolicy::Filtered => "filtered",
+            AiNetworkPolicy::Disabled => "disabled",
+        };
+
+        f.write_str(id)
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AiEnvironment {
     /// The detected AI agent.
@@ -57,6 +97,10 @@ pub struct AiEnvironment {
     /// Raw self-identification reported via `AI_AGENT`, when provided. Often
     /// encodes the agent name and version (e.g. `claude-code_2-1-170_agent`).
     pub id: Option<String>,
+
+    /// Network/egress policy detected for the environment.
+    #[serde(default)]
+    pub network: AiNetworkPolicy,
 
     /// Whether the agent runs the process inside a sandbox.
     pub sandboxed: bool,
@@ -110,6 +154,25 @@ mod tests {
         ] {
             let id = agent.to_string();
             assert_eq!(from_id(&id).unwrap(), agent, "id {id:?}");
+        }
+    }
+
+    #[test]
+    fn network_policy_serde_round_trips_display_ids() {
+        for policy in [
+            AiNetworkPolicy::Unknown,
+            AiNetworkPolicy::Open,
+            AiNetworkPolicy::Filtered,
+            AiNetworkPolicy::Disabled,
+        ] {
+            let id = policy.to_string();
+            let de: StrDeserializer<DeError> = id.as_str().into_deserializer();
+
+            assert_eq!(
+                AiNetworkPolicy::deserialize(de).unwrap(),
+                policy,
+                "id {id:?}"
+            );
         }
     }
 }

@@ -35,3 +35,22 @@ if let Some(ai) = get_environment() {
 	}
 }
 ```
+
+Additionally, detect whether the environment restricts network egress, e.g. the
+GitHub Copilot cloud agent firewall, Codex sandboxes with network access turned
+off, or local filtering proxies like the Claude Code sandbox.
+
+```rust
+use ai_env::{detect_agent, detect_network_policy, AiNetworkPolicy};
+
+match detect_network_policy(detect_agent()) {
+	AiNetworkPolicy::Disabled => println!("No network access"),
+	AiNetworkPolicy::Filtered => println!("Egress restricted to an allowlist"),
+	AiNetworkPolicy::Open => println!("Egress explicitly unrestricted"),
+	AiNetworkPolicy::Unknown => println!("No signal"),
+}
+```
+
+This is derived from environment variables only — no network I/O is performed.
+A `Filtered` network may still allow the hosts your program needs, so verify
+reachability of those hosts before acting on the signal.

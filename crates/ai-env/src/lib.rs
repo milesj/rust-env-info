@@ -13,9 +13,10 @@ mod opencode;
 mod replit;
 mod v0;
 
-pub use api::{AiAgent, AiEnvironment};
+pub use api::{AiAgent, AiEnvironment, AiNetworkPolicy};
 
 use std::env;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -163,6 +164,143 @@ fn classify_self_id(value: &str) -> AiAgent {
     }
 }
 
+static NETWORK_POLICY: OnceLock<AiNetworkPolicy> = OnceLock::new();
+
+/// Detects the network/egress policy imposed on the process, from environment
+/// variables only (no network I/O is performed). Pass the agent governing the
+/// process, typically from [`detect_agent`].
+///
+/// Agent-specific signals are only honored when the variable belongs to the
+/// given agent, so a variable leaked from another tool cannot misclassify the
+/// environment:
+/// - Codex — `CODEX_SANDBOX_NETWORK_DISABLED`, set on sandboxed commands with
+///   network access turned off
+/// - GitHub Copilot — `COPILOT_AGENT_FIREWALL_*`, the cloud agent firewall,
+///   where `COPILOT_AGENT_FIREWALL_ENABLED=false` reports it disabled
+///
+/// Independent of the agent, `HTTPS_PROXY`-family variables pointing at a
+/// host that only exists locally indicate a filtering/egress proxy (e.g. the
+/// Claude Code sandbox).
+///
+/// A [`Filtered`][AiNetworkPolicy::Filtered] network may still allow the
+/// specific hosts a program needs, so verify reachability of those hosts
+/// before acting on this signal.
+pub fn detect_network_policy(agent: AiAgent) -> AiNetworkPolicy {
+    *NETWORK_POLICY.get_or_init(|| {
+        let vars = env::vars().collect::<Vec<_>>();
+
+        detect_network_policy_from_vars(agent, &vars)
+    })
+}
+
+fn detect_network_policy_from_vars(agent: AiAgent, vars: &[(String, String)]) -> AiNetworkPolicy {
+    let get = |key: &str| {
+        vars.iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .filter(|v| !v.is_empty())
+    };
+
+    match agent {
+        // Codex sandboxed commands with network access turned off
+        // https://developers.openai.com/codex/environment-variables
+        AiAgent::Codex
+            if get("CODEX_SANDBOX_NETWORK_DISABLED").is_some_and(|v| v == "1" || v == "true") =>
+        {
+            return AiNetworkPolicy::Disabled;
+        }
+        // GitHub Copilot cloud agent firewall. The documented `_ENABLED`,
+        // `_ALLOW_LIST`, and `_ALLOW_LIST_ADDITIONS` variables are accompanied
+        // by undocumented `_RULESET_*` and `_LOG_FILE` internals, so match on
+        // the stable prefix rather than exact names.
+        // https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/customize-the-agent-firewall
+        AiAgent::GithubCopilot
+            if vars.iter().any(|(key, value)| {
+                key.starts_with("COPILOT_AGENT_FIREWALL_") && !value.is_empty()
+            }) =>
+        {
+            return if get("COPILOT_AGENT_FIREWALL_ENABLED")
+                .is_some_and(|v| v == "false" || v == "0")
+            {
+                AiNetworkPolicy::Open
+            } else {
+                AiNetworkPolicy::Filtered
+            };
+        }
+        _ => {}
+    }
+
+    // A proxy that is only reachable from inside the machine or its local
+    // network implies egress is being filtered through it, as with the
+    // localhost proxy of the Claude Code sandbox. This is a property of the
+    // process itself rather than of any one agent, so it applies to all of
+    // them. External proxies are not classified: they are just as likely
+    // plain corporate infrastructure.
+    for key in [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ] {
+        if get(key)
+            .and_then(proxy_host)
+            .is_some_and(is_internal_proxy_host)
+        {
+            return AiNetworkPolicy::Filtered;
+        }
+    }
+
+    AiNetworkPolicy::Unknown
+}
+
+/// Extracts the host from a proxy URL such as `http://127.0.0.1:3129`,
+/// `socks5://user:pass@proxy:1080`, or a bare `host:port` pair.
+fn proxy_host(value: &str) -> Option<&str> {
+    let rest = value.split_once("://").map_or(value, |(_, rest)| rest);
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, rest)| rest);
+    let rest = match rest.find(['/', '?']) {
+        Some(index) => &rest[..index],
+        None => rest,
+    };
+
+    // Bracketed IPv6, e.g. `[::1]:8080`
+    if let Some(v6) = rest.strip_prefix('[') {
+        return v6.split(']').next();
+    }
+
+    // Bare IPv6 without a port, e.g. `::1`
+    if rest.parse::<IpAddr>().is_ok() {
+        return Some(rest);
+    }
+
+    let host = rest.rsplit_once(':').map_or(rest, |(host, _)| host);
+
+    (!host.is_empty() && !host.contains(':')).then_some(host)
+}
+
+/// Whether a proxy host can only be reached from inside the machine or its
+/// local network: loopback and private addresses, `localhost`, and
+/// single-label hostnames (e.g. `proxy`), which only resolve locally.
+fn is_internal_proxy_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        };
+    }
+
+    !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// Returns metadata about the current AI agent environment, or `None` when no
 /// agent is detected.
 pub fn get_environment() -> Option<AiEnvironment> {
@@ -187,6 +325,7 @@ pub fn get_environment() -> Option<AiEnvironment> {
                 agent: AiAgent::Unknown,
                 env_prefix: None,
                 id: Some(id),
+                network: detect_network_policy(AiAgent::Unknown),
                 sandboxed: false,
                 session_id: None,
             });
@@ -353,5 +492,155 @@ mod tests {
         let env = vars(&[("PATH", "/usr/bin")]);
 
         assert_eq!(detect_agent_from_vars(&env), AiAgent::Unknown);
+    }
+
+    #[test]
+    fn network_disabled_for_codex_sandbox() {
+        assert_eq!(
+            detect_network_policy_from_vars(
+                AiAgent::Codex,
+                &vars(&[("CODEX_SANDBOX_NETWORK_DISABLED", "1")])
+            ),
+            AiNetworkPolicy::Disabled
+        );
+        // Only an affirmative value counts
+        assert_eq!(
+            detect_network_policy_from_vars(
+                AiAgent::Codex,
+                &vars(&[("CODEX_SANDBOX_NETWORK_DISABLED", "0")])
+            ),
+            AiNetworkPolicy::Unknown
+        );
+    }
+
+    #[test]
+    fn network_filtered_for_copilot_firewall() {
+        // Undocumented runtime internals match via the prefix
+        assert_eq!(
+            detect_network_policy_from_vars(
+                AiAgent::GithubCopilot,
+                &vars(&[("COPILOT_AGENT_FIREWALL_ENABLE_RULESET_ALLOW_LIST", "true")])
+            ),
+            AiNetworkPolicy::Filtered
+        );
+        // As do the documented allowlist variables
+        assert_eq!(
+            detect_network_policy_from_vars(
+                AiAgent::GithubCopilot,
+                &vars(&[("COPILOT_AGENT_FIREWALL_ALLOW_LIST_ADDITIONS", "example.com")])
+            ),
+            AiNetworkPolicy::Filtered
+        );
+    }
+
+    #[test]
+    fn network_open_when_copilot_firewall_disabled() {
+        // The explicit disable wins over other firewall variables
+        let env = vars(&[
+            ("COPILOT_AGENT_FIREWALL_ENABLED", "false"),
+            ("COPILOT_AGENT_FIREWALL_LOG_FILE", "/tmp/fw.jsonl"),
+        ]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::GithubCopilot, &env),
+            AiNetworkPolicy::Open
+        );
+    }
+
+    #[test]
+    fn network_unknown_for_copilot_cli_alone() {
+        // The local Copilot CLI has no firewall
+        let env = vars(&[("COPILOT_CLI", "1")]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::GithubCopilot, &env),
+            AiNetworkPolicy::Unknown
+        );
+    }
+
+    #[test]
+    fn network_vendor_signals_only_apply_to_their_own_agent() {
+        // A leaked Copilot firewall variable must not classify another agent
+        let copilot = vars(&[("COPILOT_AGENT_FIREWALL_ENABLE_RULESET_ALLOW_LIST", "true")]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::Cursor, &copilot),
+            AiNetworkPolicy::Unknown
+        );
+
+        // And likewise for the Codex network toggle
+        let codex = vars(&[("CODEX_SANDBOX_NETWORK_DISABLED", "1")]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::Claude, &codex),
+            AiNetworkPolicy::Unknown
+        );
+    }
+
+    #[test]
+    fn network_filtered_for_internal_proxies() {
+        for value in [
+            "http://127.0.0.1:3129",
+            "http://localhost:8080",
+            "http://[::1]:8080",
+            "socks5://user:pass@10.0.0.2:1080",
+            // Single-label hosts only resolve on the local network
+            "http://proxy:8080",
+        ] {
+            assert_eq!(
+                detect_network_policy_from_vars(AiAgent::Claude, &vars(&[("HTTPS_PROXY", value)])),
+                AiNetworkPolicy::Filtered,
+                "value {value:?}"
+            );
+        }
+
+        // Lowercase variants count too, and the proxy signal is not
+        // vendor-specific, so it applies to every agent
+        assert_eq!(
+            detect_network_policy_from_vars(
+                AiAgent::Gemini,
+                &vars(&[("http_proxy", "http://127.0.0.1:3129")])
+            ),
+            AiNetworkPolicy::Filtered
+        );
+    }
+
+    #[test]
+    fn network_unknown_for_external_proxies() {
+        // A fully-qualified proxy is just as likely corporate infrastructure
+        for value in [
+            "http://proxy.corp.example.com:8080",
+            "https://8.8.8.8:443",
+            "",
+        ] {
+            assert_eq!(
+                detect_network_policy_from_vars(AiAgent::Claude, &vars(&[("HTTPS_PROXY", value)])),
+                AiNetworkPolicy::Unknown,
+                "value {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn network_disabled_outranks_other_signals() {
+        let env = vars(&[
+            ("CODEX_SANDBOX_NETWORK_DISABLED", "1"),
+            ("HTTPS_PROXY", "http://127.0.0.1:3129"),
+        ]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::Codex, &env),
+            AiNetworkPolicy::Disabled
+        );
+    }
+
+    #[test]
+    fn no_network_signals() {
+        let env = vars(&[("PATH", "/usr/bin")]);
+
+        assert_eq!(
+            detect_network_policy_from_vars(AiAgent::Claude, &env),
+            AiNetworkPolicy::Unknown
+        );
     }
 }
