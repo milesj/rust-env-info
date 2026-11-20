@@ -54,3 +54,32 @@ match detect_network_policy(detect_agent()) {
 This is derived from environment variables only — no network I/O is performed.
 A `Filtered` network may still allow the hosts your program needs, so verify
 reachability of those hosts before acting on the signal.
+
+### Human-driven environments
+
+Some environments set their marker for every command, including the ones a
+person types: Cursor's integrated terminal (`CURSOR_TRACE_ID`) and Replit
+workspaces (`REPL_ID`). An agent running inside one of them, like Claude Code in
+Cursor's terminal, is still detected as itself, as its own marker is checked
+first. When only the environment's marker is present, the process may be driven
+by a person, which `is_human_possible` reports.
+
+```rust
+use ai_env::detect_agent;
+
+if detect_agent().is_human_possible() {
+	println!("Possibly a person, not an agent");
+}
+```
+
+Detection only reads environment variables, so telling the two apart is left
+to you. For example, agents usually capture output through pipes, so a
+terminal attached to stdout or stderr suggests a person.
+
+```rust
+use ai_env::{detect_agent, is_ai_agent};
+use std::io::{self, IsTerminal};
+
+let has_terminal = io::stdout().is_terminal() || io::stderr().is_terminal();
+let agent_driven = is_ai_agent() && (!detect_agent().is_human_possible() || !has_terminal);
+```

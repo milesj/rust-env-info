@@ -22,6 +22,10 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Returns true if the process is being run by an AI coding agent.
+///
+/// When [`AiAgent::is_human_possible`] is true for the detected agent, such as
+/// in Cursor's integrated terminal, this is also true for commands a person
+/// runs in that environment.
 pub fn is_ai_agent() -> bool {
     get_environment().is_some()
 }
@@ -33,7 +37,10 @@ static AGENT: OnceLock<AiAgent> = OnceLock::new();
 ///
 /// Note that an unrecognized agent may still be present via the `AI_AGENT`
 /// self-identification variable; prefer [`is_ai_agent`] or [`get_environment`]
-/// to detect that case.
+/// to detect that case. Such an agent also outranks the markers of
+/// environments where [`AiAgent::is_human_possible`] is true, so in Cursor's
+/// integrated terminal, for example, this returns `Unknown` rather than
+/// `Cursor`.
 pub fn detect_agent() -> AiAgent {
     *AGENT.get_or_init(|| {
         let vars = env::vars().collect::<HashMap<_, _>>();
@@ -42,7 +49,7 @@ pub fn detect_agent() -> AiAgent {
     })
 }
 
-/// Detection markers in priority order, mirroring `@vercel/detect-agent`.
+/// Detection markers in priority order.
 ///
 /// Unlike the `ci_env`/`cd_env` crates, detection isn't a flat key table:
 /// several agents need value checks (`CURSOR_EXTENSION_HOST_ROLE`), multiple
@@ -50,16 +57,19 @@ pub fn detect_agent() -> AiAgent {
 /// Cowork mode), so the checks are spelled out explicitly. Markers are checked
 /// before the `AI_AGENT` self-id so the Cowork sub-mode is detected even when
 /// `AI_AGENT` is also set to the generic Claude Code string.
+///
+/// Markers that environments also set for commands a person runs (see
+/// [`AiAgent::is_human_possible`]) are checked last. Agents often run inside
+/// those environments, e.g. Claude Code in Cursor's integrated terminal, and
+/// inherit their markers, so checking them last detects the agent itself.
+/// This is where the order diverges from `@vercel/detect-agent`, which checks
+/// `CURSOR_TRACE_ID` first.
 fn detect_agent_from_vars(vars: &HashMap<String, String>) -> AiAgent {
     let get = |key: &str| vars.get(key).map(|v| v.as_str()).filter(|v| !v.is_empty());
     let any = |keys: &[&str]| keys.iter().any(|key| get(key).is_some());
 
-    // Cursor editor integrated terminal
-    if get("CURSOR_TRACE_ID").is_some() {
-        return AiAgent::Cursor;
-    }
-
-    // Cursor CLI agent (env marker or the agent-exec extension host role)
+    // Cursor's own agent (the CLI marker, or the editor's agent-exec extension
+    // host role), which inherits CURSOR_TRACE_ID when run in the editor
     if get("CURSOR_AGENT").is_some() || get("CURSOR_EXTENSION_HOST_ROLE") == Some("agent-exec") {
         return AiAgent::CursorCli;
     }
@@ -94,10 +104,6 @@ fn detect_agent_from_vars(vars: &HashMap<String, String>) -> AiAgent {
         };
     }
 
-    if get("REPL_ID").is_some() {
-        return AiAgent::Replit;
-    }
-
     // GitHub Copilot CLI
     if any(&[
         "COPILOT_CLI",
@@ -110,7 +116,9 @@ fn detect_agent_from_vars(vars: &HashMap<String, String>) -> AiAgent {
 
     // Fall back to the `AI_AGENT` self-identification string. Agents that only
     // self-identify (no boolean marker, e.g. v0) are classified by name.
-    if let Some(value) = get("AI_AGENT") {
+    let self_id = get("AI_AGENT");
+
+    if let Some(value) = self_id {
         let agent = classify_self_id(value);
 
         if !matches!(agent, AiAgent::Unknown) {
@@ -120,6 +128,24 @@ fn detect_agent_from_vars(vars: &HashMap<String, String>) -> AiAgent {
 
     if PathBuf::from("/opt/.devin").exists() {
         return AiAgent::Devin;
+    }
+
+    // An unrecognized self-id is still an agent announcing itself, so it
+    // outranks the markers below; `get_environment` surfaces it generically
+    if self_id.is_some() {
+        return AiAgent::Unknown;
+    }
+
+    // Markers that are also set for commands a person runs
+
+    // Cursor editor integrated terminal
+    if get("CURSOR_TRACE_ID").is_some() {
+        return AiAgent::Cursor;
+    }
+
+    // Replit workspace, shared by a person and the Replit Agent
+    if get("REPL_ID").is_some() {
+        return AiAgent::Replit;
     }
 
     AiAgent::Unknown
@@ -394,6 +420,21 @@ mod tests {
             detect_agent_from_vars(&vars(&[("CURSOR_EXTENSION_HOST_ROLE", "extension")])),
             AiAgent::Unknown
         );
+        // Other roles in the editor's terminal remain the editor
+        assert_eq!(
+            detect_agent_from_vars(&vars(&[
+                ("CURSOR_TRACE_ID", "abc"),
+                ("CURSOR_EXTENSION_HOST_ROLE", "extension")
+            ])),
+            AiAgent::Cursor
+        );
+    }
+
+    #[test]
+    fn detects_replit() {
+        let env = vars(&[("REPL_ID", "abc")]);
+
+        assert_eq!(detect_agent_from_vars(&env), AiAgent::Replit);
     }
 
     #[test]
@@ -459,10 +500,41 @@ mod tests {
     }
 
     #[test]
-    fn cursor_editor_outranks_claude() {
-        let env = vars(&[("CURSOR_TRACE_ID", "abc"), ("CLAUDECODE", "1")]);
+    fn agents_in_human_possible_environments_detect_as_themselves() {
+        // Agents inherit the markers of the environment they run in, like
+        // Cursor's integrated terminal, so their own markers take precedence
+        let agents: &[(&[(&str, &str)], AiAgent)] = &[
+            (&[("CLAUDECODE", "1")], AiAgent::Claude),
+            (
+                &[("CLAUDECODE", "1"), ("CLAUDE_CODE_IS_COWORK", "1")],
+                AiAgent::ClaudeCowork,
+            ),
+            (&[("CODEX_THREAD_ID", "th_123")], AiAgent::Codex),
+            (&[("CURSOR_AGENT", "1")], AiAgent::CursorCli),
+            (
+                &[("CURSOR_EXTENSION_HOST_ROLE", "agent-exec")],
+                AiAgent::CursorCli,
+            ),
+            (&[("GEMINI_CLI", "1")], AiAgent::Gemini),
+            (&[("ANTIGRAVITY_AGENT", "1")], AiAgent::Antigravity),
+            (&[("AUGMENT_AGENT", "1")], AiAgent::Augment),
+            (&[("OPENCODE", "1")], AiAgent::OpenCode),
+            (&[("COPILOT_CLI", "1")], AiAgent::GithubCopilot),
+            (&[("AI_AGENT", "v0")], AiAgent::V0),
+        ];
 
-        assert_eq!(detect_agent_from_vars(&env), AiAgent::Cursor);
+        for environment in [("CURSOR_TRACE_ID", "abc"), ("REPL_ID", "abc")] {
+            for (markers, expected) in agents {
+                let mut env = vars(markers);
+                env.insert(environment.0.into(), environment.1.into());
+
+                assert_eq!(
+                    detect_agent_from_vars(&env),
+                    *expected,
+                    "markers {markers:?} with {environment:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -470,6 +542,14 @@ mod tests {
         // Still "present" — surfaced generically by get_environment — but not
         // a typed agent
         let env = vars(&[("AI_AGENT", "some-new-tool")]);
+
+        assert_eq!(detect_agent_from_vars(&env), AiAgent::Unknown);
+    }
+
+    #[test]
+    fn unrecognized_self_id_outranks_human_possible_environments() {
+        // An agent announcing itself in Cursor's terminal is not the editor
+        let env = vars(&[("AI_AGENT", "some-new-tool"), ("CURSOR_TRACE_ID", "abc")]);
 
         assert_eq!(detect_agent_from_vars(&env), AiAgent::Unknown);
     }
