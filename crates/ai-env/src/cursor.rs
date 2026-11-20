@@ -1,8 +1,9 @@
 use crate::api::{opt_var, self_id, AiAgent, AiEnvironment};
 use crate::detect_network_policy;
 
-// Cursor editor — its integrated terminal sets CURSOR_TRACE_ID. Note this can
-// be present for human-driven commands, not just agent-driven ones.
+// Cursor editor — its integrated terminal sets CURSOR_TRACE_ID for every
+// command, including those a person types, so it's only detected when no other
+// agent's marker is present (see `AiAgent::is_human_possible`).
 pub fn create_environment() -> AiEnvironment {
     AiEnvironment {
         agent: AiAgent::Cursor,

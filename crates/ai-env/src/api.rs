@@ -23,6 +23,27 @@ pub enum AiAgent {
     Unknown,
 }
 
+impl AiAgent {
+    /// Returns true if this agent is detected from a marker that its
+    /// environment also sets for commands a person runs, so the process may
+    /// be driven by a person rather than an agent:
+    ///
+    /// - [`Cursor`][Self::Cursor] — Cursor's integrated terminal sets
+    ///   `CURSOR_TRACE_ID` for every command, including those a person types.
+    ///   Cursor's own agent is detected as [`CursorCli`][Self::CursorCli].
+    /// - [`Replit`][Self::Replit] — `REPL_ID` marks the Replit workspace,
+    ///   which a person and the Replit Agent share.
+    ///
+    /// This is a property of the agent, so it also applies when the agent is
+    /// detected from an `AI_AGENT` self-identification. Detection only reads
+    /// environment variables, so telling a person from an agent is left to
+    /// the caller, for example by checking whether a terminal is attached, as
+    /// agents usually capture output through pipes.
+    pub const fn is_human_possible(self) -> bool {
+        matches!(self, AiAgent::Cursor | AiAgent::Replit)
+    }
+}
+
 impl fmt::Display for AiAgent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let id = match self {
@@ -140,6 +161,30 @@ mod tests {
         assert_eq!(AiAgent::ClaudeCowork.to_string(), "claude-cowork");
         assert_eq!(AiAgent::GithubCopilot.to_string(), "github-copilot");
         assert_eq!(AiAgent::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn human_possible_only_for_shared_environments() {
+        for agent in [
+            AiAgent::Antigravity,
+            AiAgent::Augment,
+            AiAgent::Claude,
+            AiAgent::ClaudeCowork,
+            AiAgent::Codex,
+            AiAgent::CursorCli,
+            AiAgent::Devin,
+            AiAgent::Gemini,
+            AiAgent::GithubCopilot,
+            AiAgent::OpenCode,
+            AiAgent::V0,
+            // An unrecognized `AI_AGENT` self-identification is still an agent
+            AiAgent::Unknown,
+        ] {
+            assert!(!agent.is_human_possible(), "agent {agent}");
+        }
+
+        assert!(AiAgent::Cursor.is_human_possible());
+        assert!(AiAgent::Replit.is_human_possible());
     }
 
     #[test]
